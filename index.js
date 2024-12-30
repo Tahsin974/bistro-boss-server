@@ -26,11 +26,12 @@ const client = new MongoClient(uri, {
   async function run() {
     try {
       // Connect the client to the server	(optional starting in v4.7)
-      await client.connect();
+      // await client.connect();
       const database = client.db("BB_DATABASE")
       const menuCollection = database.collection('menu'); 
       const reviewCollection = database.collection('review'); 
       const cartCollection = database.collection('carts'); 
+      
 
       app.get('/menu' , async(req,res)=>{
         
@@ -62,7 +63,6 @@ const client = new MongoClient(uri, {
         
         res.json(result)
       })
-
       // Delete Api
       app.delete('/carts/:id',async(req,res)=>{
         const id = req.params.id;
