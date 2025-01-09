@@ -31,21 +31,24 @@ const client = new MongoClient(uri, {
       const menuCollection = database.collection('menu'); 
       const reviewCollection = database.collection('review'); 
       const cartCollection = database.collection('carts'); 
+      const userCollection = database.collection('users'); 
       
-
+      // Menu Collection related apis
       app.get('/menu' , async(req,res)=>{
         
         const result = await menuCollection.find({}).toArray()
         
         res.json(result)
       })
+
+        // Review Collection related apis
       app.get('/review' , async(req,res)=>{
         const result = await reviewCollection.find({}).toArray()
         
         res.json(result)
       })
 
-      // Cart Collections
+      // Cart Collections related Apis
       // Get Api
       app.get('/carts' , async(req,res)=>{
         const email = req.query.email;
@@ -69,6 +72,56 @@ const client = new MongoClient(uri, {
         const query = {_id: new ObjectId(id)}
         const result =await cartCollection.deleteOne(query);
         res.json(result)
+      })
+
+
+
+      // User Collection  Related API
+      // Post APIs
+      app.post('/users', async(req,res) => {
+        const userInfo = req.body;
+        const query = {email: userInfo.email}
+        const existingUser = await userCollection.findOne(query);
+        if(existingUser){
+          res.send({message:"user Already exists",insertedId:null} )
+        }
+
+        else{
+          const result = await userCollection.insertOne(userInfo);
+
+        res.send(result)
+        }
+      })
+
+
+      // get APIs
+
+      app.get('/users',async(req,res) => {
+        const result = await userCollection.find({}).toArray()
+        res.json(result)
+      })
+
+
+      // Delete Apis
+      app.delete('/users/:id',async(req,res) =>{
+        const id = req.params.id;
+        const query = {_id: new ObjectId(id)}
+        const result = await userCollection.deleteOne(query);
+        res.send(result)
+      })
+
+      // Patch Apis
+      app.patch('/users/admin/:id',async(req,res) =>{
+        const id = req.params.id;
+        const filter = {_id: new ObjectId(id)};
+        const updatedDoc = {
+          $set: {
+            role:"admin"
+          },
+        };
+        const result = await userCollection.updateOne(filter,updatedDoc);
+        res.json(result)
+
       })
       
     } finally {
