@@ -285,6 +285,118 @@ async function run() {
         return res.json(paymentHistoryResult);
       }
     });
+
+    // Stats Related APIs
+
+    app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
+      const userEmail = req.query.email;
+      if (userEmail !== req.decoded.email) {
+        return res.status(401).send("unauthorized access");
+      }
+      // menu items
+      const menuItems = await menuCollection.estimatedDocumentCount();
+
+      // Customers
+      const query = { role: { $ne: "admin" } };
+      const customers = await userCollection.countDocuments(query);
+
+      // Orders
+      const orders = await paymentCollection.estimatedDocumentCount();
+
+      // Revenue
+
+      /* 
+      it is not a better option
+      const options = {
+        projection: { _id: 0, price: 1 },
+      };
+      const result = await paymentCollection.find({}, options).toArray();
+      const revenue = result.reduce((totalPrice, item) => {
+        return totalPrice + item.price;
+      }, 0); */
+
+      const revenuePipeline = [
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: "$price" },
+          },
+        },
+      ];
+      const result = await paymentCollection
+        .aggregate(revenuePipeline)
+        .toArray();
+      const revenue = result.length > 0 ? result[0].totalRevenue : 0;
+
+      res.send({
+        menuItems: menuItems,
+        customers: customers,
+        orders: orders,
+        revenue: revenue,
+      });
+    });
+
+    // Order Stats
+    app.get("/order-stats", verifyToken, verifyAdmin, async (req, res) => {
+      // Aggregation pipeline
+      const Pipeline = [
+        // Step 1: Convert menuIDs to ObjectId (since they seem to be stored as strings)
+
+        {
+          $addFields: {
+            menuIDs: {
+              $map: {
+                input: "$menuIDs",
+                as: "menuID",
+                in: { $toObjectId: "$$menuID" },
+              },
+            },
+          },
+        },
+        // Step 2: Unwind the menuIDs array
+
+        {
+          $unwind: "$menuIDs",
+        },
+        // Step 3: Lookup menu items based on menuIDs
+
+        {
+          $lookup: {
+            from: "menu",
+            localField: "menuIDs",
+            foreignField: "_id",
+            as: "menuItems",
+          },
+        },
+        // Step 4: Unwind the menuItems array (to handle the result of $lookup)
+        {
+          $unwind: "$menuItems",
+        },
+        // Step 5: Group by category and calculate total quantity and revenue
+        {
+          $group: {
+            _id: "$menuItems.category",
+            quantity: { $sum: 1 },
+            revenue: { $sum: "$menuItems.price" },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            category: "$_id",
+            quantity: 1,
+            revenue: 1,
+          },
+        },
+      ];
+
+      const userEmail = req.query.email;
+      if (userEmail !== req.decoded.email) {
+        return res.status(401).send("unauthorized access");
+      }
+      const result = await paymentCollection.aggregate(Pipeline).toArray();
+      res.json(result);
+    });
   } finally {
     // Ensures that the client will close when you finish/error
     //   await client.close();
