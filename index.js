@@ -24,6 +24,8 @@ const client = new MongoClient(uri, {
   },
 });
 
+// const baseURL = "http://localhost:5173";
+const baseURL = "https://tahsin-bistro-boss.web.app";
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -324,10 +326,10 @@ async function run() {
         total_amount: total_price,
         currency: "BDT",
         tran_id: transactionID, // use unique tran_id for each api call
-        success_url: `http://localhost:5000/success?trans_id=${transactionID}&&email=${userEmail}`,
-        fail_url: `http://localhost:5000/fail`,
-        cancel_url: `http://localhost:5000/cancel`,
-        ipn_url: `http://localhost:5000/ipn`,
+        success_url: `https://bistro-boss-restuarant-server.vercel.app/success?trans_id=${transactionID}&&email=${userEmail}`,
+        fail_url: `https://bistro-boss-restuarant-server.vercel.app/fail`,
+        cancel_url: `https://bistro-boss-restuarant-server.vercel.app/cancel`,
+        ipn_url: `https://bistro-boss-restuarant-server.vercel.app/ipn`,
         shipping_method: "Courier",
         product_name: "Computer.",
         product_category: "Electronic",
@@ -395,9 +397,7 @@ async function run() {
         const deletedResult = await cartCollection.deleteMany(query);
 
         if (result.modifiedCount > 0 && deletedResult.deletedCount > 0) {
-          return res.redirect(
-            `http://localhost:5173/dashboard/success/${transID}`
-          );
+          return res.redirect(`${baseURL}/dashboard/success/${transID}`);
         }
       }
     });
