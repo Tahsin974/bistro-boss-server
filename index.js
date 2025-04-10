@@ -2,6 +2,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const { default: axios } = require("axios");
 require("dotenv").config();
 const stripe = require("stripe")(`${process.env.PAYMENT_GATEWAY_SK}`);
 
@@ -11,6 +12,7 @@ const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster
 
 // middlewares
 app.use(express.json());
+app.use(express.urlencoded());
 app.use(cors());
 
 // JWT token
@@ -248,7 +250,6 @@ async function run() {
         currency: "usd",
         payment_method_types: ["card"],
       });
-      console.log(paymentIntent);
 
       res.send({
         clientSecret: paymentIntent.client_secret,
@@ -284,6 +285,140 @@ async function run() {
           .toArray();
         return res.json(paymentHistoryResult);
       }
+    });
+    // SSL COMMERZ PAYMENT SYSTEM RELATED APIs
+    // POST APIs
+    app.post("/create-ssl-payment", async (req, res) => {
+      const paymentInfo = req.body;
+      const userEmail = req.query.email;
+
+      const TotalPriceResult = await menuCollection
+        .aggregate([
+          {
+            $match: {
+              _id: {
+                $in: paymentInfo.menuIDs.map((id) => new ObjectId(id)),
+              },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              total_price: { $sum: "$price" },
+            },
+          },
+          {
+            $project: {
+              _id: 0, // Exclude the _id field from the output
+            },
+          },
+        ])
+        .toArray();
+      const total_price =
+        TotalPriceResult.length > 0 ? TotalPriceResult[0].total_price : 0;
+
+      const transactionID = new ObjectId().toString();
+      const initiateData = {
+        store_id: `${process.env.SSL_STORE_ID}`,
+        store_passwd: `${process.env.SSL_STORE_PASS}`,
+        total_amount: total_price,
+        currency: "BDT",
+        tran_id: transactionID, // use unique tran_id for each api call
+        success_url: `http://localhost:5000/success?trans_id=${transactionID}&&email=${userEmail}`,
+        fail_url: `http://localhost:5000/fail`,
+        cancel_url: `http://localhost:5000/cancel`,
+        ipn_url: `http://localhost:5000/ipn`,
+        shipping_method: "Courier",
+        product_name: "Computer.",
+        product_category: "Electronic",
+        product_profile: "general",
+        cus_name: "Customer Name",
+        cus_email: `${paymentInfo?.email}`,
+        cus_add1: "Dhaka",
+        cus_add2: "Dhaka",
+        cus_city: "Dhaka",
+        cus_state: "Dhaka",
+        cus_postcode: "1000",
+        cus_country: "Bangladesh",
+        cus_phone: "01711111111",
+        cus_fax: "01711111111",
+        ship_name: "Customer Name",
+        ship_add1: "Dhaka",
+        ship_add2: "Dhaka",
+        ship_city: "Dhaka",
+        ship_state: "Dhaka",
+        ship_postcode: 1000,
+        ship_country: "Bangladesh",
+      };
+      const result = await axios.post(
+        "https://sandbox.sslcommerz.com/gwprocess/v4/api.php",
+        initiateData,
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+        }
+      );
+      paymentInfo.transactionId = transactionID;
+      const paymentResult = await paymentCollection.insertOne(paymentInfo);
+      const gatewayURL = result.data?.GatewayPageURL;
+      res.send({ gatewayURL, paymentResult });
+    });
+
+    // SUCCESS ROUTE
+    app.post("/success", async (req, res) => {
+      const paymentInfo = req.body;
+      const transID = req.query.trans_id;
+      const userEmail = req.query.email;
+
+      const result = await axios.get(
+        `https://sandbox.sslcommerz.com/validator/api/validationserverAPI.php?val_id=${paymentInfo.val_id}&&store_id=${process.env.SSL_STORE_ID}&&store_passwd=${process.env.SSL_STORE_PASS}`
+      );
+      if (result.data.status !== "VALID") {
+        return res.send({ message: "invalid payment" });
+      } else {
+        const filter = { transactionId: transID };
+        const updatedItem = {
+          $set: {
+            status: "Success",
+          },
+        };
+        const result = await paymentCollection.updateOne(filter, updatedItem);
+        // delete from cart
+        const paymentHistory = await paymentCollection.findOne(filter);
+        const query = {
+          _id: {
+            $in: paymentHistory.cartIDs.map((id) => new ObjectId(id)),
+          },
+          customerEmail: userEmail,
+        };
+        const deletedResult = await cartCollection.deleteMany(query);
+
+        if (result.modifiedCount > 0 && deletedResult.deletedCount > 0) {
+          return res.redirect(
+            `http://localhost:5173/dashboard/success/${transID}`
+          );
+        }
+      }
+    });
+
+    // get payment details
+    app.get("/payment-details", async (req, res) => {
+      const transactionId = req.query.transID;
+      const query = { transactionId: transactionId };
+      // get the payment history
+      const paymentDetails = await paymentCollection.findOne(query);
+      const filter = {
+        _id: {
+          $in: paymentDetails.menuIDs.map((id) => new ObjectId(id)),
+        },
+      };
+      const options = {
+        projection: { _id: 0, name: 1, price: 1 },
+      };
+
+      const itemsDetails = await menuCollection.find(filter, options).toArray();
+      res.json({ itemsDetails, paymentDetails });
     });
 
     // Stats Related APIs
